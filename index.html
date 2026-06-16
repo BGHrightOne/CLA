@@ -6,13 +6,13 @@
     <title>対応記録音声入力</title>
     <style>
         body { font-family: sans-serif; padding: 10px; background: #f0f2f5; margin: 0; }
-        #chat-box { height: 55vh; overflow-y: auto; background: white; padding: 15px; border-radius: 8px; margin-bottom: 10px; border: 1px solid #ddd; }
+        #chat-box { height: 45vh; overflow-y: auto; background: white; padding: 15px; border-radius: 8px; margin-bottom: 10px; border: 1px solid #ddd; }
         .msg { margin: 8px 0; padding: 10px 14px; border-radius: 15px; max-width: 85%; line-height: 1.4; word-break: break-all; }
         .user { background: #DCF8C6; margin-left: auto; text-align: left; }
         .ai { background: #EAEAEA; margin-right: auto; white-space: pre-wrap; }
         
-        /* 入力プレビュー欄のスタイル */
-        #preview-box { height: 50px; background: #fff; border: 1px dashed #bbb; border-radius: 8px; padding: 10px; margin-bottom: 10px; font-size: 14px; color: #666; overflow-y: auto; }
+        /* 💡 プレビュー欄の縦幅を5倍（50px → 250px）に拡張し、スクロール可能に */
+        #preview-box { height: 250px; background: #fff; border: 1px dashed #bbb; border-radius: 8px; padding: 12px; margin-bottom: 10px; font-size: 15px; color: #666; overflow-y: auto; line-height: 1.5; word-break: break-all; }
         
         button { width: 100%; padding: 14px; font-size: 16px; border: none; border-radius: 5px; color: white; margin-bottom: 8px; font-weight: bold; cursor: pointer; }
         #voice-btn { background: #06C755; }
@@ -64,7 +64,7 @@
                     }
                 }
 
-                // 確定した文字があれば、変数にどんどん溜め込んでいく（ここではまだ送信しない）
+                // 確定した文字があれば、変数にどんどん溜め込んでいく
                 if (newFinalTranscript !== '') {
                     accumulatedText += newFinalTranscript;
                 }
@@ -72,12 +72,14 @@
                 // プレビュー表示には「確定分」＋「今喋っている途中」をリアルタイムに出す
                 let currentTotalText = accumulatedText + interimTranscript;
                 if (currentTotalText.trim() !== '') {
-                    previewBox.innerText = "🗣️ 認識中: " + currentTotalText;
+                    previewBox.innerText = "🗣️ 認識中:\n" + currentTotalText;
                     previewBox.style.color = "#000"; 
+                    // 長文になっても最新の入力が常に見えるように自動スクロール
+                    previewBox.scrollTop = previewBox.scrollHeight;
                 }
             };
 
-            // ON状態の間は、ブラウザの一時的なリセットが入っても自動再開して音声を拾い続ける
+            // ON状態の間は自動再開して音声を拾い続ける
             recognition.onend = () => {
                 if (isListening) {
                     console.log("音声認識が一時終了したため、自動再開します...");
@@ -93,10 +95,10 @@
             recognition.onerror = (event) => {
                 console.error("音声認識エラー: ", event.error);
                 if (event.error === 'no-speech') {
-                    // 無言の時は何もしない（ONを維持）
+                    // 無言の時は何もしない
                 } else if (event.error !== 'aborted') {
                     alert("音声認識でエラーが発生しました: " + event.error);
-                    stopSpeech(false); // エラー時は送信せずにストップ
+                    stopSpeech(false); 
                     previewBox.innerText = "❌ エラーにより音声入力を停止しました。";
                 }
             };
@@ -109,7 +111,6 @@
             if (!isListening) {
                 startSpeech();
             } else {
-                // 💡 ボタンを押してOFFにしたら、溜まった文章を送信する（trueを渡す）
                 stopSpeech(true);
             }
         }
@@ -119,19 +120,18 @@
             const btn = document.getElementById('voice-btn');
             try {
                 isListening = true;
-                accumulatedText = ""; // 喋り始めにテキストを初期化
+                accumulatedText = ""; 
                 recognition.start();
                 
                 btn.innerText = "🛑 話し終えたらここを押して送信";
                 btn.style.background = "#ff4d4d";
-                previewBox.innerText = "🎙️ 音声入力中：どれだけ途中で止めても勝手には送信されません。";
+                previewBox.innerText = "🎙️ 音声入力中：どれだけ長話をしても、途中で言葉を止めても勝手には送信されません。";
                 previewBox.style.color = "#000";
 
-                // ⏱️ 5分の自動シャットダウンタイマー（切り忘れ防止）
+                // ⏱️ 5分の自動シャットダウンタイマー
                 clearTimeout(autoShutdownTimer);
                 autoShutdownTimer = setTimeout(() => {
                     if (isListening) {
-                        // 5分経過時は、そこまで喋った内容を自動送信して終了する
                         stopSpeech(true);
                         alert("ONの状態で5分が経過したため、自動で送信してオフにしました。");
                     }
@@ -144,10 +144,10 @@
             }
         }
 
-        // 音声入力を完全に停止する関数（引数 doSend が true なら送信処理を行う）
+        // 音声入力を完全に停止する関数
         function stopSpeech(doSend) {
             isListening = false;
-            clearTimeout(autoShutdownTimer); // タイマーを消す
+            clearTimeout(autoShutdownTimer); 
             
             try {
                 recognition.stop();
@@ -155,17 +155,17 @@
                 console.error("停止エラー:", e);
             }
             
-            // ボタンの見た目を元に戻す
             const btn = document.getElementById('voice-btn');
             btn.innerText = "🎤 音声入力ON (待機中)";
             btn.style.background = "#06C755";
             
-            // 💡 送信フラグが立っており、かつ文字が溜まっていれば送信
+            // 送信フラグが立っており、かつ文字が溜まっていれば送信
             if (doSend && accumulatedText.trim() !== '') {
                 addMessage(accumulatedText, 'user');
                 sendToGemini(accumulatedText);
-                previewBox.innerText = "📥 送信しました。";
-                previewBox.style.color = "#666";
+                // 💡 送信後も、何を送信したか分かるようにプレビュー欄に少し残す
+                previewBox.innerText = "📥 以下の内容を送信しました：\n\n" + accumulatedText;
+                previewBox.style.color = "#888";
             } else {
                 previewBox.innerText = "🛑 音声入力はオフです（送信はされませんでした）。";
                 previewBox.style.color = "#666";
