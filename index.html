@@ -11,7 +11,7 @@
         .user { background: #DCF8C6; margin-left: auto; text-align: left; }
         .ai { background: #EAEAEA; margin-right: auto; white-space: pre-wrap; }
         
-        /* 💡 入力プレビュー欄のスタイル */
+        /* 入力プレビュー欄のスタイル */
         #preview-box { height: 50px; background: #fff; border: 1px dashed #bbb; border-radius: 8px; padding: 10px; margin-bottom: 10px; font-size: 14px; color: #666; overflow-y: auto; }
         
         button { width: 100%; padding: 14px; font-size: 16px; border: none; border-radius: 5px; color: white; margin-bottom: 8px; font-weight: bold; cursor: pointer; }
@@ -25,7 +25,7 @@
         <div class="msg ai">音声記録を開始します。今日の記録者のお名前と、対象の利用者のお名前を教えてください。</div>
     </div>
 
-    <div id="preview-box" id="preview">🎙️ ボタンを押して話すと、ここにリアルタイムで文字が表示されます...</div>
+    <div id="preview-box">🎙️ ボタンを押して話すと、ここにリアルタイムで文字が表示されます...</div>
 
     <button id="voice-btn" onclick="toggleSpeech()">🎤 音声入力ON (待機中)</button>
     <button id="copy-btn" onclick="copyResult()">📋 まとめのコピー</button>
@@ -46,29 +46,28 @@
             recognition = new SpeechRecognition();
             
             recognition.continuous = true;
-            recognition.interimResults = true; // 💡 これにより、話し途中の文字も取得できます
+            recognition.interimResults = true; 
             recognition.lang = 'ja-JP';
 
             recognition.onresult = (event) => {
                 let finalTranscript = '';
-                let interimTranscript = ''; // 💡 話し途中のテキ ストを一時保存する変数
+                let interimTranscript = ''; 
                 
                 for (let i = event.resultIndex; i < event.results.length; ++i) {
                     if (event.results[i].isFinal) {
                         finalTranscript += event.results[i][0].transcript;
                     } else {
-                        // 💡 喋っている最中の文字をどんどん結合する
                         interimTranscript += event.results[i][0].transcript;
                     }
                 }
 
-                // 💡 喋っている最中ならプレビュー欄を更新
+                // 喋っている最中ならプレビュー欄を更新
                 if (interimTranscript !== '') {
                     previewBox.innerText = "🗣️ 認識中: " + interimTranscript;
-                    previewBox.style.color = "#000"; // 文字を読みやすく黒に
+                    previewBox.style.color = "#000"; 
                 }
 
-                // 確定したテキスト（一呼吸置いた文章）があれば送信してプレビューをクリア
+                // 確定したテキストがあれば送信
                 if (finalTranscript.trim() !== '') {
                     addMessage(finalTranscript, 'user');
                     sendToGemini(finalTranscript);
@@ -77,6 +76,7 @@
                 }
             };
 
+            // 自動復旧処理
             recognition.onend = () => {
                 if (isListening) {
                     console.log("マイクが切断されたため、自動で再開します...");
@@ -88,6 +88,7 @@
                 }
             };
             
+            // エラー発生時の安全リセット処理
             recognition.onerror = (event) => {
                 console.error("音声認識エラー: ", event.error);
                 if (event.error === 'no-speech') {
@@ -95,27 +96,45 @@
                 } else if (event.error !== 'aborted') {
                     alert("音声認識でエラーが発生しました: " + event.error);
                 }
+                
+                // ボタンの状態を安全に初期状態に戻す
+                resetButtonState();
             };
         } else {
             alert("お使いのブラウザは音声認識に対応していません。Google Chromeなどでお試しください。");
         }
 
+        // 音声ボタンのON/OFF切り替え
         function toggleSpeech() {
             const btn = document.getElementById('voice-btn');
             if (!isListening) {
-                recognition.start();
-                isListening = true;
-                btn.innerText = "🛑 音声入力中...（話してください）";
-                btn.style.background = "#ff4d4d";
-                previewBox.innerText = "🎙️ お話しください。ここにリアルタイムで表示されます...";
+                try {
+                    recognition.start();
+                    isListening = true;
+                    btn.innerText = "🛑 音声入力中...（話してください）";
+                    btn.style.background = "#ff4d4d";
+                    previewBox.innerText = "🎙️ お話しください。ここにリアルタイムで表示されます...";
+                    previewBox.style.color = "#000";
+                } catch(e) {
+                    console.error("起動エラー:", e);
+                    alert("マイクの起動に失敗しました。ページを再読み込みするか、マイクの権限を確認してください。");
+                    resetButtonState();
+                }
             } else {
                 isListening = false;
                 recognition.stop();
-                btn.innerText = "🎤 音声入力ON (待機中)";
-                btn.style.background = "#06C755";
+                resetButtonState();
                 previewBox.innerText = "🛑 音声入力はオフです。";
-                previewBox.style.color = "#666";
             }
+        }
+
+        // ボタンの表示を一括で「待機中」に戻す関数
+        function resetButtonState() {
+            isListening = false;
+            const btn = document.getElementById('voice-btn');
+            btn.innerText = "🎤 音声入力ON (待機中)";
+            btn.style.background = "#06C755";
+            previewBox.style.color = "#666";
         }
 
         function addMessage(text, sender) {
@@ -147,4 +166,16 @@
         function copyResult() {
             const messages = document.querySelectorAll('.ai');
             if(messages.length <= 1) {
-                alert("コピーするまとめがまだ
+                alert("コピーするまとめがまだありません。");
+                return;
+            }
+            const lastMessage = messages[messages.length - 1].innerText;
+            navigator.clipboard.writeText(lastMessage).then(() => {
+                alert("最新のメッセージをコピーしました！");
+            }).catch(err => {
+                alert("コピーに失敗しました。文字を長押しして選択してください。");
+            });
+        }
+    </script>
+</body>
+</html>
