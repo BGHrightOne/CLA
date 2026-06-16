@@ -25,6 +25,7 @@
         <div class="msg ai">音声記録を開始します。今日の記録者のお名前と、対象の利用者のお名前を教えてください。</div>
     </div>
 
+    <!-- 音声入力のプレビュー表示エリア -->
     <div id="preview-box">🎙️ ボタンを押して話すと、ここにリアルタイムで文字が表示されます...</div>
 
     <button id="voice-btn" onclick="toggleSpeech()">🎤 音声入力ON (待機中)</button>
@@ -39,6 +40,7 @@
 
         let recognition;
         let isListening = false;
+        let autoShutdownTimer = null; // 5分タイマー用変数
         const previewBox = document.getElementById('preview-box');
 
         if ('webkitSpeechRecognition' in window || 'speechRecognition' in window) {
@@ -71,66 +73,92 @@
                 if (finalTranscript.trim() !== '') {
                     addMessage(finalTranscript, 'user');
                     sendToGemini(finalTranscript);
-                    previewBox.innerText = "📥 送信しました。次の発言を待っています...";
+                    previewBox.innerText = "📥 送信しました。音声入力は継続中です...";
                     previewBox.style.color = "#666";
                 }
             };
 
-            // 自動復旧処理
+            // 完全トグル化：意図しない切断時も、ON状態なら強制的に自動再開
             recognition.onend = () => {
                 if (isListening) {
-                    console.log("マイクが切断されたため、自動で再開します...");
+                    console.log("音声認識が一時終了したため、トグル継続の処理として自動再開します...");
                     try {
                         recognition.start(); 
                     } catch(e) {
-                        console.error("再開エラー:", e);
+                        console.error("再開エラー(無視して問題ありません):", e);
                     }
                 }
             };
             
-            // エラー発生時の安全リセット処理
+            // エラー発生時の処理
             recognition.onerror = (event) => {
                 console.error("音声認識エラー: ", event.error);
                 if (event.error === 'no-speech') {
-                    previewBox.innerText = "🎙️ 声が聞こえないようです。もう一度お話しください。";
+                    // 無言による一時切断の場合はトグルを維持するため、プレビュー表示のみ更新
+                    previewBox.innerText = "🎙️ 声を待っています（ONの状態です）...";
                 } else if (event.error !== 'aborted') {
+                    // 致命的なエラーの時だけアラートを出しリセット
                     alert("音声認識でエラーが発生しました: " + event.error);
+                    stopSpeech();
+                    previewBox.innerText = "❌ エラーにより音声入力を停止しました。";
                 }
-                
-                // ボタンの状態を安全に初期状態に戻す
-                resetButtonState();
             };
         } else {
             alert("お使いのブラウザは音声認識に対応していません。Google Chromeなどでお試しください。");
         }
 
-        // 音声ボタンのON/OFF切り替え
+        // 音声ボタンのトグル切り替え（エントリーポイント）
         function toggleSpeech() {
-            const btn = document.getElementById('voice-btn');
             if (!isListening) {
-                try {
-                    recognition.start();
-                    isListening = true;
-                    btn.innerText = "🛑 音声入力中...（話してください）";
-                    btn.style.background = "#ff4d4d";
-                    previewBox.innerText = "🎙️ お話しください。ここにリアルタイムで表示されます...";
-                    previewBox.style.color = "#000";
-                } catch(e) {
-                    console.error("起動エラー:", e);
-                    alert("マイクの起動に失敗しました。ページを再読み込みするか、マイクの権限を確認してください。");
-                    resetButtonState();
-                }
+                startSpeech();
             } else {
-                isListening = false;
-                recognition.stop();
-                resetButtonState();
-                previewBox.innerText = "🛑 音声入力はオフです。";
+                stopSpeech();
+                previewBox.innerText = "🛑 ユーザー操作により音声入力をオフにしました。";
             }
         }
 
-        // ボタンの表示を一括で「待機中」に戻す関数
-        function resetButtonState() {
+        // 音声入力を開始する関数
+        function startSpeech() {
+            const btn = document.getElementById('voice-btn');
+            try {
+                isListening = true;
+                recognition.start();
+                
+                // ボタンの見た目を「通信中（赤）」に変更
+                btn.innerText = "🛑 音声入力中...（話してください）";
+                btn.style.background = "#ff4d4d";
+                previewBox.innerText = "🎙️ トグルON：お話しください。5分後に自動でOFFになります...";
+                previewBox.style.color = "#000";
+
+                // ⏱️ 5分（300,000ミリ秒）の自動シャットダウンタイマーを起動
+                clearTimeout(autoShutdownTimer);
+                autoShutdownTimer = setTimeout(() => {
+                    if (isListening) {
+                        stopSpeech();
+                        previewBox.innerText = "⏰ 5分が経過したため、安全のために自動シャットダウン（OFF）しました。";
+                        alert("ONの状態で5分が経過したため、自動で音声入力をオフにしました。");
+                    }
+                }, 300000); 
+
+            } catch(e) {
+                console.error("起動エラー:", e);
+                alert("マイクの起動に失敗しました。ページを再読み込みするか、マイクの権限を確認してください。");
+                stopSpeech();
+            }
+        }
+
+        // 音声入力を完全に停止する関数
+        function stopSpeech() {
             isListening = false;
+            clearTimeout(autoShutdownTimer); // タイマーをクリア
+            
+            try {
+                recognition.stop();
+            } catch(e) {
+                console.error("停止エラー:", e);
+            }
+            
+            // ボタンの見た目を「待機中（緑）」に戻す
             const btn = document.getElementById('voice-btn');
             btn.innerText = "🎤 音声入力ON (待機中)";
             btn.style.background = "#06C755";
