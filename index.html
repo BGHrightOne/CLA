@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>対応記録音声入力</title>
+    <style>
+        body { font-family: sans-serif; padding: 10px; background: #f0f2f5; margin: 0; }
+        #chat-box { height: 65vh; overflow-y: auto; background: white; padding: 15px; border-radius: 8px; margin-bottom: 10px; border: 1px solid #ddd; }
+        .msg { margin: 8px 0; padding: 10px 14px; border-radius: 15px; max-width: 85%; line-height: 1.4; word-break: break-all; }
+        .user { background: #DCF8C6; margin-left: auto; text-align: left; }
+        .ai { background: #EAEAEA; margin-right: auto; white-space: pre-wrap; }
+        button { width: 100%; padding: 14px; font-size: 16px; border: none; border-radius: 5px; color: white; margin-bottom: 8px; font-weight: bold; cursor: pointer; }
+        #voice-btn { background: #06C755; }
+        #copy-btn { background: #333; }
+    </style>
+</head>
+<body>
+
+    <div id="chat-box">
+        <div class="msg ai">音声記録を開始します。今日の記録者のお名前と、対象の利用者のお名前を教えてください。</div>
+    </div>
+    <button id="voice-btn" onclick="toggleSpeech()">🎤 音声入力ON (待機中)</button>
+    <button id="copy-btn" onclick="copyResult()">📋 まとめのコピー</button>
+
+    <script>
+        // ==========================================
+        // 🛠️ あなたの環境に合わせてここを書き換えてください
+        // ==========================================
+        const GAS_URL = "https://script.google.com/macros/s/AKfycbyvXc7PlbXkHiIGUy-Y_eGoYc9D8zSStgoZL2MAIIK85SvMEN3Ub-PkrWFSkLqlbJUSFA/exec"; 
+        // ==========================================
+
+        let recognition;
+        let isListening = false;
+
+        if ('webkitSpeechRecognition' in window || 'speechRecognition' in window) {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            recognition = new SpeechRecognition();
+            
+            // 💡 連続認識を有効にして、マイクが勝手に切れるのを防ぐ
+            recognition.continuous = true;
+            // 💡 認識途中の結果も取得できるようにする（話し終わりを検知するため）
+            recognition.interimResults = true;
+            recognition.lang = 'ja-JP';
+
+            recognition.onresult = (event) => {
+                let finalTranscript = '';
+                
+                // 新しく確定した(isFinal)テキストがあるかループで確認
+                for (let i = event.resultIndex; i < event.results.length; ++i) {
+                    if (event.results[i].isFinal) {
+                        finalTranscript += event.results[i][0].transcript;
+                    }
+                }
+
+                // 確定したテキスト（ユーザーが一呼吸置いて話し終わった文章）があれば送信
+                if (finalTranscript.trim() !== '') {
+                    addMessage(finalTranscript, 'user');
+                    sendToGemini(finalTranscript);
+                }
+            };
+
+            // AIの返答中などで勝手に切断された場合の自動復旧処理
+            recognition.onend = () => {
+                if (isListening) {
+                    console.log("マイクが切断されたため、自動で再開します...");
+                    try {
+                        recognition.start(); 
+                    } catch(e) {
+                        console.error("再開エラー:", e);
+                    }
+                }
+            };
+            
+            recognition.onerror = (event) => {
+                console.error("音声認識エラー: ", event.error);
+                // abortion（一時的な中断）以外のエラーの時は一度停止させる
+                if (event.error !== 'no-speech' && event.error !== 'aborted') {
+                    alert("音声認識でエラーが発生しました: " + event.error);
+                }
+            };
+        } else {
+            alert("お使いのブラウザは音声認識に対応していません。Google Chromeなどでお試しください。");
+        }
+
+        function toggleSpeech() {
+            const btn = document.getElementById('voice-btn');
+            if (!isListening) {
+                recognition.start();
+                isListening = true;
+                btn.innerText = "🛑 音声入力中...（話してください）";
+                btn.style.background = "#ff4d4d";
+            } else {
+                isListening = false;
+                recognition.stop();
+                btn.innerText = "🎤 音声入力ON (待機中)";
+                btn.style.background = "#06C755";
+            }
+        }
+
+        function addMessage(text, sender) {
+            const box = document.getElementById('chat-box');
+            const div = document.createElement('div');
+            div.className = `msg ${sender}`;
+            div.innerText = text;
+            box.appendChild(div);
+            box.scrollTop = box.scrollHeight;
+        }
+
+        async function sendToGemini(text) {
+            try {
+                const response = await fetch(GAS_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'text/plain'
+                    },
+                    body: JSON.stringify({ message: text })
+                });
+                const data = await response.json();
+                addMessage(data.reply, 'ai');
+            } catch (error) {
+                console.error(error);
+                addMessage("通信エラーが発生しました。もう一度お試しください。", 'ai');
+            }
+        }
+
+        function copyResult() {
+            const messages = document.querySelectorAll('.ai');
+            if(messages.length <= 1) {
+                alert("コピーするまとめがまだありません。");
+                return;
+            }
+            const lastMessage = messages[messages.length - 1].innerText;
+            navigator.clipboard.writeText(lastMessage).then(() => {
+                alert("最新のメッセージをコピーしました！");
+            }).catch(err => {
+                alert("コピーに失敗しました。文字を長押しして選択してください。");
+            });
+        }
+    </script>
+</body>
+</html>
